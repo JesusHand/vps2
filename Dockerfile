@@ -1,105 +1,49 @@
+# استفاده از نسخه مشخص اوبونتو برای جلوگیری از بروز خطاهای ناگهانی در آینده
 FROM ubuntu:22.04
 
-# جلوگیری از پرسش‌های تعاملی
-ENV DEBIAN_FRONTEND=noninteractive \
-    DISPLAY=:0 \
-    VNC_PASSWORD=miget123 \
-    RESOLUTION=1024x768
+# تنظیمات اولیه برای جلوگیری از پرسیدن سوالات تعاملی در هنگام نصب پکیج‌ها
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Tehran
 
-# نصب بسته‌های ضروری
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3-pip \
+# متغیر محیطی برای پسورد VNC 
+# (توجه: داکر به این کار به عنوان یک هشدار امنیتی نگاه می‌کند، اما بیلد را متوقف نمی‌کند)
+ENV VNC_PASSWORD=your_secure_password_here
+
+# نصب پیش‌نیازها و بسته‌های مورد نیاز
+# نکته کلیدی: بسته tigervnc-tools دستور vncpasswd را فراهم می‌کند
+RUN apt-get update && apt-get install -y \
+    tigervnc-tools \
+    tigervnc-standalone-server \
+    tigervnc-common \
+    xfce4 \
+    xfce4-goodies \
+    git \
     wget \
     curl \
-    git \
-    ca-certificates \
-    supervisor \
-    xvfb \
-    x11vnc \
-    openbox \
-    firefox \
-    xterm \
-    dbus \
-    libdbus-1-3 \
-    fonts-noto \
-    fonts-noto-cjk \
+    python3 \
+    python3-pip \
+    net-tools \
     && rm -rf /var/lib/apt/lists/*
-
-# نصب websockify
-RUN pip3 install --no-cache-dir websockify
 
 # نصب noVNC
 RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/novnc
 
-# تنظیم VNC
+# نصب websockify (برای ارتباط noVNC با VNC)
+RUN pip3 install websockify
+
+# ایجاد پوشه VNC و تنظیم پسورد
 RUN mkdir -p /root/.vnc && \
     echo "$VNC_PASSWORD" | vncpasswd -f > /root/.vnc/passwd && \
     chmod 600 /root/.vnc/passwd
 
-# ایجاد supervisor configuration
-RUN mkdir -p /etc/supervisor/conf.d
+# ایجاد فایل xstartup برای اجرای محیط گرافیکی XFCE
+RUN echo '#!/bin/sh\n\
+xrdb $HOME/.Xresources\n\
+startxfce4 &\n\
+' > /root/.vnc/xstartup && chmod +x /root/.vnc/xstartup
 
-RUN cat > /etc/supervisor/conf.d/supervisord.conf << 'EOF'
-[supervisord]
-nodaemon=true
-logfile=/var/log/supervisor/supervisord.log
-pidfile=/var/run/supervisord.pid
+# باز کردن پورت‌های VNC (5901) و noVNC (6080)
+EXPOSE 5901 6080
 
-[unix_http_server]
-file=/var/run/supervisor.sock
-
-[supervisorctl]
-serverurl=unix:///var/run/supervisor.sock
-
-[rpcinterface:supervisor]
-supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
-
-[program:xvfb]
-command=/usr/bin/Xvfb :0 -screen 0 1024x768x24 -ac
-autostart=true
-autorestart=true
-stderr_logfile=/var/log/supervisor/xvfb.err.log
-stdout_logfile=/var/log/supervisor/xvfb.out.log
-
-[program:openbox]
-command=/usr/bin/openbox
-autostart=true
-autorestart=true
-environment=DISPLAY=:0
-stderr_logfile=/var/log/supervisor/openbox.err.log
-stdout_logfile=/var/log/supervisor/openbox.out.log
-
-[program:x11vnc]
-command=/usr/bin/x11vnc -display :0 -forever -usepw -rfbport 5900
-autostart=true
-autorestart=true
-stderr_logfile=/var/log/supervisor/x11vnc.err.log
-stdout_logfile=/var/log/supervisor/x11vnc.out.log
-
-[program:novnc]
-command=python3 -m websockify 0.0.0.0:6080 localhost:5900 --web /opt/novnc
-autostart=true
-autorestart=true
-stderr_logfile=/var/log/supervisor/novnc.err.log
-stdout_logfile=/var/log/supervisor/novnc.out.log
-
-[program:dbus]
-command=/usr/bin/dbus-daemon --system --nofork
-autostart=true
-autorestart=true
-stderr_logfile=/var/log/supervisor/dbus.err.log
-stdout_logfile=/var/log/supervisor/dbus.out.log
-EOF
-
-# ایجاد دایرکتوری log
-RUN mkdir -p /var/log/supervisor
-
-# Expose پورت‌ها
-EXPOSE 5900 6080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD x11vnc -ping localhost:5900 || exit 1
-
-# شروع supervisor
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
+# دستور اجرا (شروع VNC و سپس noVNC)
+CMD ["/bin/bash", "-c", "vncserver :1 -geometry 1280x720 -depth 24 && /opt/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 6080"]
