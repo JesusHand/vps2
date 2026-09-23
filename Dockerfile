@@ -8,6 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 
 # نصب بسته‌های ضروری
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
     wget \
     curl \
     git \
@@ -24,22 +25,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/*
 
-# نصب noVNC
-RUN mkdir -p /opt/novnc && \
-    cd /opt/novnc && \
-    wget -q https://github.com/novnc/noVNC/archive/v1.4.0.tar.gz && \
-    tar xzf v1.4.0.tar.gz && \
-    mv noVNC-1.4.0/* . && \
-    rm -rf noVNC-1.4.0 v1.4.0.tar.gz && \
-    chmod +x utils/launch.sh
+# نصب websockify
+RUN pip3 install --no-cache-dir websockify
 
-# نصب websockify (برای noVNC)
-RUN cd /opt/novnc && \
-    git clone https://github.com/novnc/websockify.git --depth 1 && \
-    cd websockify && \
-    python3 -m pip install --no-cache-dir . && \
-    cd .. && \
-    rm -rf websockify
+# نصب noVNC
+RUN git clone --depth 1 https://github.com/novnc/noVNC.git /opt/novnc
 
 # تنظیم VNC
 RUN mkdir -p /root/.vnc && \
@@ -87,7 +77,7 @@ stderr_logfile=/var/log/supervisor/x11vnc.err.log
 stdout_logfile=/var/log/supervisor/x11vnc.out.log
 
 [program:novnc]
-command=/usr/bin/python3 /opt/novnc/websockify/run 0.0.0.0:6080 localhost:5900 --web /opt/novnc
+command=python3 -m websockify 0.0.0.0:6080 localhost:5900 --web /opt/novnc
 autostart=true
 autorestart=true
 stderr_logfile=/var/log/supervisor/novnc.err.log
